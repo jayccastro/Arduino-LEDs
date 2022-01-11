@@ -1,5 +1,8 @@
 #include <Wire.h>
 #include "Adafruit_AS726x.h"
+#include <ezButton.h>
+
+ezButton button(7);  //create ezButton object that attach to pin 7;
 
 //create the object
 Adafruit_AS726x ams;
@@ -11,25 +14,23 @@ uint16_t sensorValues[AS726x_NUM_CHANNELS];
 //float calibratedValues[AS726x_NUM_CHANNELS];
 
 int numReads = 10;
-int cont1 = 0;
-int cont2 = 0;
-float a;
-float b;
-float concentracao;
-float sum1;
-float sum2;
+int cont;
+float sum;
 float average1;
 float average2;
+float average3;
+float conc;
+void motorA(int mode, int percent)
 
 int pinoRed = 9; //PINO DIGITAL UTILIZADO PELO TERMINAL VERMELHO
 int pinoGreen = 10; //PINO DIGITAL UTILIZADO PELO TERMINAL VERDE
 int pinoBlue = 11; //PINO DIGITAL UTILIZADO PELO TERMINAL AZUL
 
-int val; //VARIÁVEL DO TIPO INTEIRA
+int val;
 
-// EXEMPLO - http://en.wikipedia.org/wiki/Simple_linear_regression
+//EXEMPLO - http://en.wikipedia.org/wiki/Simple_linear_regression
 float x[11] = {0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1};
-float y[11] = {40855.80, 0.95, 0.85, 0.76, 0.71, 0.65, 0.52, 0.43, 0.32, 0.22, 0.11};
+float y[11] = {0, 0.95, 0.85, 0.76, 0.71, 0.65, 0.52, 0.43, 0.32, 0.22, 0.11};
 float lrCoef[2] = {0, 0};
 
 float sum_x = 0;
@@ -40,6 +41,7 @@ float sum_xx = 0;
 void setup() {
   Serial.begin(9600);
   while(!Serial);
+  button.setDebounceTime(50); //set debounce time to 50 milliseconds
 
   pinMode(pinoRed, OUTPUT); //DEFINE O PINO COMO SAÍDA
   pinMode(pinoBlue, OUTPUT); //DEFINE O PINO COMO SAÍDA
@@ -48,10 +50,17 @@ void setup() {
   analogWrite(pinoRed, 255); //PINO RECEBE O VALOR
   analogWrite(pinoGreen, 223); //PINO RECEBE O VALOR
   analogWrite(pinoBlue, 0); //PINO RECEBE O VALOR
-  delay (10); //INTERVALO DE 10 MILISSEGUNDOS
+  delay (10);
   
-  //initialize digital pin LED_BUILTIN as an output.
+  //initialize digital pin LED_BUILTIN as an output
   pinMode(LED_BUILTIN, OUTPUT);
+
+  //PRIMEIRA PARTE DO CÓDIGO
+  do {
+    button.loop();
+  } while (!button.isPressed());
+  Serial.println("MEASURING THE BLANK VALUE ...");
+  Serial.println();
 
   //begin and make sure we can talk to the sensor
   if(!ams.begin()){
@@ -61,7 +70,7 @@ void setup() {
 
   do {
    //read the device temperature
-   //uint8_t temp = ams.readTemperature();
+   uint8_t temp = ams.readTemperature();
   
    //ams.drvOn(); //uncomment this if you want to use the driver LED for readings
    ams.startMeasurement(); //begin a measurement
@@ -74,15 +83,15 @@ void setup() {
    }
    //ams.drvOff(); //uncomment this if you want to use the driver LED for readings
 
-   //read the values!
+   //read the values
    ams.readRawValues(sensorValues);
    //ams.readCalibratedValues(calibratedValues);
 
-   for (int k = 0; k < numReads; k++){
-    sum1 += sensorValues[AS726x_ORANGE];
+   for (int i = 0; i < numReads; i++){
+    sum += sensorValues[AS726x_ORANGE];
    }
-   
-   //Serial.print("Temp: "); Serial.print(temp);
+
+   Serial.print(" Temp: "); Serial.print(temp);
    //Serial.print(" Violet: "); Serial.print(sensorValues[AS726x_VIOLET]);
    //Serial.print(" Blue: "); Serial.print(sensorValues[AS726x_BLUE]);
    //Serial.print(" Green: "); Serial.print(sensorValues[AS726x_GREEN]);
@@ -91,19 +100,21 @@ void setup() {
    //Serial.print(" Red: "); Serial.print(sensorValues[AS726x_RED]);
    Serial.println();
    Serial.println();
-   cont1++;
-  } while(cont1 < numReads); 
+   cont++;
+  } while(cont < numReads); 
 
-   average1 = sum1/(numReads*numReads);
-   Serial.print(" Orange Average I0 = "); Serial.print(average1);
+   average1 = sum/(numReads*numReads);
+   Serial.print(" Orange Blank Average I0 = "); Serial.print(average1);
+   cont = 0;
+   sum = 0;
  
  y[0] = average1;
  float y0 = y[0];
- for(int i=0; i<11; i++){
-  y[i]=-log10(y[i]/y0);
+ for(int j = 0; j < 11; j++){
+  y[j] = -log10(y[j]/y0);
  }
 
- // CHAMA O ALGORITMO DE REGRESSÃO LINEAR
+ //CHAMA O ALGORITMO DE REGRESSÃO LINEAR
  simpLinReg(x, y, lrCoef, 11);
  Serial.println("");
  Serial.print(" Abs = ");
@@ -117,27 +128,83 @@ void setup() {
  }
  
  Serial.println(lrCoef[1], 4);
- a=lrCoef[0];
- b=lrCoef[1];
+
+  do {
+    button.loop();
+  } while (!button.isReleased());
+  Serial.println();
+  Serial.println("PRESS THE BUTTON AGAIN TO MEASURE THE LIGHT VALUE BEFORE BUBBLING WITH OZONE ...");
+  Serial.println();
+
+  //SEGUNDA PARTE DO CÓDIGO
+  do {
+    button.loop();
+  } while (!button.isPressed());
+
+ //LIGANDO A BOMBA
+ //definindo as saídas
+  pinMode(ENA, OUTPUT); //enable A no pino 5 (tem de ser um pino PWM)
+  pinMode(IN1, OUTPUT);//IN1 no pino 2 controla 1 lado da ponte A
+  pinMode(IN2, OUTPUT);//IN2 no pino 4 controla o outro lado da ponte A
  
+  motorA(1, 100)//temos o Motor A no sentido horário com 100% de velocidade
+  delay(600000); //o motor gira por 10 minutos
+  motorA(3, 100); //O motor A vai parar totalmente
 
-//CÓDIGO DA BOMBA
+  {
+ 
+  //muda a percentagem de 0 até 100 no PWM
+ 
+  int duty = map(percent, 0, 100, 0, 255);
+ 
+  switch(mode)
+  {
+  case 0: //desativa o motor
+  digitalWrite(ENA, LOW); //define o enable a LOW para desativar o A
+  break;
+ 
+  case 1: //define o sentido horario
+ 
+  digitalWrite(IN1, HIGH); //define IN1 a HIGH
+ 
+  digitalWrite(IN2, LOW); //define IN2 a LOW
+ 
+  analogWrite(ENA, duty); //usa o PWM para controlar a velocidade do motor através do pin do enable
+ 
+  break;
+ 
+  case 2: //define o sentido anti horario
+ 
+  digitalWrite(IN1, LOW); //define IN1 a LOW
+ 
+  digitalWrite(IN2, HIGH); //define IN2 a HIGH
+ 
+  analogWrite(ENA, duty); //usa o PWM para controlar a velocidade do motor através do pin do enable
+ 
+  break;
+ 
+  case 3: //Travar o motor
+ 
+  digitalWrite(IN1, LOW); //define IN1 a LOW
+ 
+  digitalWrite(IN2, LOW); //define IN2 a LOW
+ 
+  analogWrite(ENA, duty); //usa o PWM para travar o motor através do pin do enable
+ 
+  break;
+  }
+  }
 
-//LEITURA DA TRANSMITÂNCIA APÓS BOMBEAMENTO DO AR AMBIENTE
 
- Serial.begin(9600); //ligando LED novamente
- while(!Serial);
-
- delay (10); //INTERVALO DE 10 MILISSEGUNDOS
-
- if(!ams.begin()){
+  //begin and make sure we can talk to the sensor
+  if(!ams.begin()){
     Serial.println("could not connect to sensor! Please check your wiring.");
     while(1);
   }
 
   do {
    //read the device temperature
-   //uint8_t temp = ams.readTemperature();
+   uint8_t temp = ams.readTemperature();
   
    //ams.drvOn(); //uncomment this if you want to use the driver LED for readings
    ams.startMeasurement(); //begin a measurement
@@ -150,15 +217,15 @@ void setup() {
    }
    //ams.drvOff(); //uncomment this if you want to use the driver LED for readings
 
-   //read the values!
+   //read the values
    ams.readRawValues(sensorValues);
    //ams.readCalibratedValues(calibratedValues);
 
-   for (int w = 0; w < numReads; w++){
-    sum2 += sensorValues[AS726x_ORANGE];
+   for (int l = 0; l < numReads; l++){
+    sum += sensorValues[AS726x_ORANGE];
    }
 
-   //Serial.print("Temp: "); Serial.print(temp);
+   Serial.print(" Temp: "); Serial.print(temp);
    //Serial.print(" Violet: "); Serial.print(sensorValues[AS726x_VIOLET]);
    //Serial.print(" Blue: "); Serial.print(sensorValues[AS726x_BLUE]);
    //Serial.print(" Green: "); Serial.print(sensorValues[AS726x_GREEN]);
@@ -167,29 +234,91 @@ void setup() {
    //Serial.print(" Red: "); Serial.print(sensorValues[AS726x_RED]);
    Serial.println();
    Serial.println();
-   cont2++;
-  } while(cont2 < numReads); 
+   cont++;
+  } while(cont < numReads); 
 
-   average2 = sum2/(numReads*numReads);
-   Serial.print(" Orange Average I = "); Serial.print(average2);
- 
-   concentracao = (average2-b)/a;
-   Serial.print ("A concentração de ozonio no ambiente e : "); Serial.print(concentracao);
+   average2 = sum/(numReads*numReads);
+   Serial.print(" Orange Light Average Before Bubbling = "); Serial.print(average2);  
+   Serial.println();
+   cont = 0;
+   sum = 0;
 
+  do {
+    button.loop();
+  } while (!button.isReleased());
+  Serial.println();
+  Serial.println("PRESS THE BUTTON AGAIN TO MEASURE THE LIGHT VALUE AFTER BUBBLING WITH OZONE ...");
+  Serial.println();
 
-}
+  //TERCEIRA PARTE DO CÓDIGO
+  do {
+    button.loop();
+  } while (!button.isPressed());
 
-void loop() {
+  //begin and make sure we can talk to the sensor
+  if(!ams.begin()){
+    Serial.println("could not connect to sensor! Please check your wiring.");
+    while(1);
+  }
+
+  do {
+   //read the device temperature
+   uint8_t temp = ams.readTemperature();
+  
+   //ams.drvOn(); //uncomment this if you want to use the driver LED for readings
+   ams.startMeasurement(); //begin a measurement
+  
+   //wait till data is available
+   bool rdy = false;
+   while(!rdy){
+     delay(1000);
+     rdy = ams.dataReady();
+   }
+   //ams.drvOff(); //uncomment this if you want to use the driver LED for readings
+
+   //read the values
+   ams.readRawValues(sensorValues);
+   //ams.readCalibratedValues(calibratedValues);
+
+   for (int l = 0; l < numReads; l++){
+    sum += sensorValues[AS726x_ORANGE];
+   }
+
+   Serial.print(" Temp: "); Serial.print(temp);
+   //Serial.print(" Violet: "); Serial.print(sensorValues[AS726x_VIOLET]);
+   //Serial.print(" Blue: "); Serial.print(sensorValues[AS726x_BLUE]);
+   //Serial.print(" Green: "); Serial.print(sensorValues[AS726x_GREEN]);
+   //Serial.print(" Yellow: "); Serial.print(sensorValues[AS726x_YELLOW]);
+   Serial.print(" Orange: "); Serial.print(sensorValues[AS726x_ORANGE]);
+   //Serial.print(" Red: "); Serial.print(sensorValues[AS726x_RED]);
+   Serial.println();
+   Serial.println();
+   cont++;
+  } while(cont < numReads); 
+
+   average3 = sum/(numReads*numReads);
+   Serial.print(" Orange Light Average After Bubbling = "); Serial.print(average3);  
+   Serial.println();
+   cont = 0;
+   sum = 0;
+
+   //CALCULOS FEITOS - ARRUMAR ISSO DEPOIS !!!
+   conc = (-log10((average2-average3)/y0)-lrCoef[1])/lrCoef[0];
+   Serial.print(" Ozone Conc = "); Serial.print(conc);
+
 }
 
 void simpLinReg(float* x, float* y, float* lrCoef, int n){
  // CALCULOS PARA REGRESSÃO LINEAR
- for (int i=0; i<n; i++){
-  sum_x += x[i];
-  sum_y += y[i];
-  sum_xy = sum_xy+x[i]*y[i];
-  sum_xx = sum_xx+x[i]*x[i];
+ for (int k = 0; k < n; k++){
+  sum_x += x[k];
+  sum_y += y[k];
+  sum_xy = sum_xy+x[k]*y[k];
+  sum_xx = sum_xx+x[k]*x[k];
  }
- lrCoef[0]=(n*sum_xy-sum_x*sum_y)/(n*sum_xx-sum_x*sum_x);
- lrCoef[1]=(sum_y/n)-((lrCoef[0]*sum_x)/n);
-} 
+ lrCoef[0] = (n*sum_xy-sum_x*sum_y)/(n*sum_xx-sum_x*sum_x);
+ lrCoef[1] = (sum_y/n)-((lrCoef[0]*sum_x)/n);
+}
+
+void loop() {
+}
